@@ -1,8 +1,60 @@
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="URL Shortener", version="0.1.0")
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.responses import RedirectResponse
+from sqlalchemy.orm import Session
+
+from app.db import get_db, init_db
+from app.schemas import ShortenRequest, ShortenResponse
+from app.services.shorten import (
+    AliasConflictError,
+    AliasValidationError,
+    CodeGenerationError,
+    UrlValidationError,
+    build_short_url,
+    get_link_by_code,
+    shorten_url,
+)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="URL Shortener", version="0.1.0", lifespan=lifespan)
 
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.post("/shorten", response_model=ShortenResponse, status_code=status.HTTP_201_CREATED)
+def create_short_url(payload: ShortenRequest, db: Session = Depends(get_db)):
+    try:
+        link = shorten_url(db, payload.url, payload.alias)
+    except (UrlValidationError, AliasValidationError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except AliasConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except CodeGenerationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        ) from exc
+
+    return ShortenResponse(
+        code=link.code,
+        short_url=build_short_url(link.code),
+        original_url=link.original_url,
+    )
+
+
+@app.get("/{code}")
+def redirect_to_url(code: str, db: Session = Depends(get_db)):
+    link = get_link_by_code(db, code)
+    if link is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Short code not found")
+
+    return RedirectResponse(url=link.original_url, status_code=status.HTTP_301_MOVED_PERMANENTLY)
