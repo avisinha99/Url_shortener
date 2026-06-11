@@ -89,12 +89,15 @@ curl -i http://localhost:8000/abc12Xy
 
 Shortening the same URL twice without a custom alias returns the existing auto-generated code instead of creating a new row. URLs are normalized first (scheme and host lowercased), so `https://Example.com` and `HTTPS://example.com` map to the same code.
 
+Concurrent auto-shorten requests for the same URL are serialized with a per-URL in-process lock so only one code is created.
+
 ### Custom aliases
 
 - Must be 3-32 characters: letters, numbers, `_`, or `-`
 - Reserved aliases (`health`, `shorten`, `api`, `docs`, `openapi`, `redoc`) are rejected with `400`
 - If an alias already points to the same URL, the existing mapping is returned
 - If an alias is already taken by a different URL, the API returns `409 Conflict`
+- Concurrent alias creation races are handled via `IntegrityError` recovery (returns `409`, not `500`)
 
 ### Short-code generation
 
@@ -110,6 +113,7 @@ Auto codes are 7-character base62 strings (`a-z`, `A-Z`, `0-9`) generated with P
 - Only `http://` and `https://` URLs are accepted
 - URLs must include a host and be at most 2048 characters
 - Scheme and host are normalized to lowercase before storage
+- Missing, empty, or semantically invalid inputs return `400` (not `422`)
 
 ### Redirect status
 

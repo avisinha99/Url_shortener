@@ -1,11 +1,11 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class ShortenRequest(BaseModel):
-    url: str = Field(min_length=1)
-    alias: str | None = Field(default=None, max_length=32)
+    url: str | None = None
+    alias: str | None = None
 
 
 class ShortenResponse(BaseModel):
